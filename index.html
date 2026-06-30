@@ -124,8 +124,10 @@ main { padding: 24px 28px; }
 }
 .out-btn.win { border-color: var(--bull); color: var(--bull); }
 .out-btn.loss { border-color: var(--bear); color: var(--bear); }
+.out-btn.skip { border-color: var(--neutral); color: var(--muted); }
 .out-btn.win:hover { background: rgba(0,192,118,0.12); }
 .out-btn.loss:hover { background: rgba(255,77,109,0.12); }
+.out-btn.skip:hover { background: rgba(107,114,128,0.12); }
 .out-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .wait-card {
@@ -473,7 +475,8 @@ function extractFeatures(sig) {
 }
 
 function mlConfidence(sig) {
-  if (!mlWeights || tradeLog.length < 10) return 0.60;
+  const trainable = tradeLog.filter(e => e.outcome===1 || e.outcome===0);
+  if (!mlWeights || trainable.length < 10) return 0.60;
   const feats = extractFeatures(sig);
   let z = mlWeights.bias;
   feats.forEach((f,i) => z += mlWeights.w[i]*f);
@@ -481,13 +484,14 @@ function mlConfidence(sig) {
 }
 
 function trainML() {
-  if (tradeLog.length < 10) return;
+  const trainable = tradeLog.filter(e => e.outcome===1 || e.outcome===0);
+  if (trainable.length < 10) return;
   const lr=0.05, epochs=200;
   const n=4;
   let w=new Array(n).fill(0), b=0;
   for (let e=0; e<epochs; e++) {
     let dw=new Array(n).fill(0), db=0;
-    tradeLog.forEach(entry => {
+    trainable.forEach(entry => {
       const f=entry.features, y=entry.outcome;
       let z=b; f.forEach((fi,i)=>z+=w[i]*fi);
       const pred=1/(1+Math.exp(-z));
@@ -495,8 +499,8 @@ function trainML() {
       f.forEach((fi,i)=>dw[i]+=err*fi);
       db+=err;
     });
-    w=w.map((wi,i)=>wi - lr*dw[i]/tradeLog.length);
-    b=b - lr*db/tradeLog.length;
+    w=w.map((wi,i)=>wi - lr*dw[i]/trainable.length);
+    b=b - lr*db/trainable.length;
   }
   mlWeights={w,bias:b};
   localStorage.setItem("ml_weights", JSON.stringify(mlWeights));
@@ -505,6 +509,13 @@ function trainML() {
 function logOutcome(sig, outcome, btn) {
   btn.disabled=true;
   btn.closest(".outcome-row").querySelectorAll("button").forEach(b=>b.disabled=true);
+  if (outcome===null) {
+    tradeLog.push({features:extractFeatures(sig), outcome:null, notTriggered:true, pair:sig.pair, ts:new Date().toISOString()});
+    localStorage.setItem("trade_log", JSON.stringify(tradeLog));
+    updateMLStats();
+    btn.textContent = "⊘ Logged: Not Triggered";
+    return;
+  }
   tradeLog.push({features:extractFeatures(sig), outcome, pair:sig.pair, ts:new Date().toISOString()});
   localStorage.setItem("trade_log", JSON.stringify(tradeLog));
   trainML();
@@ -514,11 +525,23 @@ function logOutcome(sig, outcome, btn) {
 
 function updateMLStats() {
   document.getElementById("ml-total").textContent = tradeLog.length;
-  if (tradeLog.length>0) {
-    const wins=tradeLog.filter(e=>e.outcome===1).length;
-    document.getElementById("ml-wr").textContent = Math.round(wins/tradeLog.length*100)+"%";
-    document.getElementById("ml-model").textContent = tradeLog.length>=10 ? "Trained ✓" : `Training (${tradeLog.length}/10)`;
+  const trainable = tradeLog.filter(e => e.outcome===1 || e.outcome===0);
+  const notTriggered = tradeLog.filter(e => e.notTriggered).length;
+  if (trainable.length>0) {
+    const wins=trainable.filter(e=>e.outcome===1).length;
+    document.getElementById("ml-wr").textContent = Math.round(wins/trainable.length*100)+"%";
+    document.getElementById("ml-model").textContent = trainable.length>=10 ? "Trained ✓" : `Training (${trainable.length}/10)`;
   }
+  let ntEl = document.getElementById("ml-nt");
+  if (!ntEl) {
+    const strip = document.querySelector(".ml-strip");
+    const card = document.createElement("div");
+    card.className = "ml-card";
+    card.innerHTML = `<div class="ml-lbl">Not Triggered</div><div class="ml-val" id="ml-nt" style="color:var(--accent2)">0</div>`;
+    strip.appendChild(card);
+    ntEl = document.getElementById("ml-nt");
+  }
+  ntEl.textContent = notTriggered;
 }
 
 // ─── MAIN ANALYSIS ───────────────────────────────────────────────────────────
@@ -651,6 +674,7 @@ function makeSignalCard(s) {
       <div class="outcome-row">
         <button class="out-btn win" onclick="logOutcome(${JSON.stringify(s).replace(/"/g,'&quot;')}, 1, this)">✓ Win</button>
         <button class="out-btn loss" onclick="logOutcome(${JSON.stringify(s).replace(/"/g,'&quot;')}, 0, this)">✗ Loss</button>
+        <button class="out-btn skip" onclick="logOutcome(${JSON.stringify(s).replace(/"/g,'&quot;')}, null, this)">⊘ Not Triggered</button>
       </div>
     </div>`;
   return d;
@@ -671,4 +695,3 @@ setInterval(()=>{ if(API_KEY && !analysisRunning) runAnalysis(); }, 5*60*1000);
 </script>
 </body>
 </html>
-
