@@ -542,10 +542,10 @@ async function runAnalysis() {
     setStatus(`Analysing ${pair} (${i+1}/${PAIRS.length})`);
     try {
       const c1h = await fetchOHLC(pair,"1h",100);
-      await new Promise(r=>setTimeout(r,8000)); // rate limit gap between every single call
+      await new Promise(r=>setTimeout(r,16000)); // rate limit gap between every single call
       setProgress(pct, `Fetching ${pair} (5M)...`);
       const c5m = await fetchOHLC(pair,"5min",200);
-      await new Promise(r=>setTimeout(r,8000)); // rate limit gap before next pair
+      await new Promise(r=>setTimeout(r,16000)); // rate limit gap before next pair
       const {bias,highs,lows} = determineBias(c1h);
       const bos = findBOS(c1h,bias,highs,lows);
       const poi = findPOI(c1h,bias,bos);
@@ -671,3 +671,4 @@ setInterval(()=>{ if(API_KEY && !analysisRunning) runAnalysis(); }, 5*60*1000);
 </script>
 </body>
 </html>
+
