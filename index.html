@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Signal Bot — Smart Money</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@300;400;500;600&display=swap');
+:root {
+  --bg: #0a0c10; --panel: #111318; --border: #1e2130;
+  --accent: #00d4aa; --accent2: #7b5ea7;
+  --bull: #00c076; --bear: #ff4d6d;
+  --neutral: #6b7280; --text: #e2e8f0; --muted: #6b7280;
+  --warning: #f59e0b;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'Inter', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; padding-bottom: 60px; }
+
+header {
+  padding: 18px 28px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.logo { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: var(--accent); text-transform: uppercase; }
+.logo span { color: var(--muted); }
+#last-updated { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+.api-bar {
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  padding: 10px 28px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.api-bar label { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+.api-bar input {
+  flex: 1; min-width: 200px; max-width: 360px;
+  background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 12px;
+  font-family: var(--mono); font-size: 12px; border-radius: 4px; outline: none;
+}
+.api-bar input:focus { border-color: var(--accent); }
+.btn-save {
+  font-family: var(--mono); font-size: 12px; background: var(--accent);
+  color: #000; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 600;
+}
+.btn-refresh {
+  font-family: var(--mono); font-size: 12px; background: none;
+  border: 1px solid var(--accent); color: var(--accent);
+  padding: 6px 16px; border-radius: 4px; cursor: pointer;
+}
+.btn-refresh:hover { background: rgba(0,212,170,0.1); }
+.btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+#key-status { font-size: 11px; font-family: var(--mono); color: var(--accent); }
+
+main { padding: 24px 28px; }
+.section-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+}
+
+/* Bias strip */
+.bias-strip { display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; }
+.bias-card {
+  flex: 1; min-width: 130px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+}
+.bias-card .bc-pair { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+.bias-card .bc-bias { font-size: 14px; font-weight: 600; }
+.bc-bias.bull { color: var(--bull); }
+.bc-bias.bear { color: var(--bear); }
+.bc-bias.neutral { color: var(--neutral); }
+.bias-card .bc-sub { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-top: 3px; }
+
+/* Signal cards */
+.signals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-bottom: 32px; }
+.sig-card { background: var(--panel); border-radius: 10px; border: 1px solid var(--border); overflow: hidden; }
+.sig-card.buy { border-top: 3px solid var(--bull); }
+.sig-card.sell { border-top: 3px solid var(--bear); }
+.sig-card.wait { border-top: 3px solid var(--accent2); }
+
+.sig-head {
+  padding: 13px 16px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.sig-pair { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.sig-ts { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+.dir-badge { font-family: var(--mono); font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; }
+.dir-badge.buy { background: rgba(0,192,118,0.15); color: var(--bull); }
+.dir-badge.sell { background: rgba(255,77,109,0.15); color: var(--bear); }
+.dir-badge.wait { background: rgba(123,94,167,0.15); color: var(--accent2); }
+
+.sig-body { padding: 14px 16px; }
+.sig-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.sig-row:last-of-type { border-bottom: none; }
+.sig-row .lbl { font-size: 11px; color: var(--muted); }
+.sig-row .val { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.val.entry { color: var(--accent); }
+.val.sl { color: var(--bear); }
+.val.tp { color: var(--bull); }
+.val.dol { color: var(--warning); }
+
+.tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 10px; font-family: var(--mono); padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); }
+.tag.hi { border-color: var(--accent); color: var(--accent); }
+
+.conf-wrap { margin-top: 12px; }
+.conf-labels { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.conf-labels span { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.conf-bar { background: rgba(255,255,255,0.06); border-radius: 4px; height: 5px; overflow: hidden; }
+.conf-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent2), var(--accent)); transition: width 0.5s; }
+
+.inducement-box {
+  margin-top: 10px; padding: 9px 12px;
+  background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 6px; font-size: 11px; color: var(--warning); font-family: var(--mono); line-height: 1.6;
+}
+
+.outcome-row { display: flex; gap: 8px; margin-top: 12px; }
+.out-btn {
+  flex: 1; font-family: var(--mono); font-size: 11px;
+  padding: 6px; border-radius: 4px; border: 1px solid; cursor: pointer; background: transparent;
+}
+.out-btn.win { border-color: var(--bull); color: var(--bull); }
+.out-btn.loss { border-color: var(--bear); color: var(--bear); }
+.out-btn.win:hover { background: rgba(0,192,118,0.12); }
+.out-btn.loss:hover { background: rgba(255,77,109,0.12); }
+.out-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.wait-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 16px; text-align: center;
+}
+.wait-card .wc-pair { font-family: var(--mono); font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.wait-card .wc-msg { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.wait-card .wc-poi { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-top: 6px; }
+
+/* ML */
+.ml-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 60px; }
+.ml-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
+.ml-card .ml-lbl { font-size: 10px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px; }
+.ml-card .ml-val { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--accent); }
+
+.status-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--panel); border-top: 1px solid var(--border);
+  padding: 9px 28px; display: flex; align-items: center; gap: 12px;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.status-txt { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+.loading-box { text-align: center; padding: 50px 20px; color: var(--muted); font-family: var(--mono); font-size: 13px; }
+.spinner { display: inline-block; width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.err-box {
+  background: rgba(255,77,109,0.08); border: 1px solid rgba(255,77,109,0.25);
+  color: var(--bear); border-radius: 6px; padding: 14px 18px;
+  font-size: 12px; font-family: var(--mono); margin-bottom: 18px; line-height: 1.6;
+}
+.progress-bar-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; }
+.progress-label { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.progress-bar { background: rgba(255,255,255,0.06); border-radius: 4px; height: 6px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent2), var(--accent)); transition: width 0.3s; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Signal<span>Bot</span> // SMC</div>
+  <div id="last-updated" style="font-family:var(--mono);font-size:11px;color:var(--muted);">Not yet analysed</div>
+</header>
+
+<div class="api-bar">
+  <label>TWELVEDATA KEY:</label>
+  <input type="password" id="api-key" placeholder="Paste your TwelveData API key here..."/>
+  <button class="btn-save" onclick="saveKey()">Save</button>
+  <button class="btn-refresh" id="refresh-btn" onclick="runAnalysis()">↺ Analyse</button>
+  <span id="key-status"></span>
+</div>
+
+<main>
+  <div class="section-label">1H Market Bias</div>
+  <div class="bias-strip" id="bias-strip"></div>
+
+  <div id="progress-wrap" style="display:none">
+    <div class="progress-bar-wrap">
+      <div class="progress-label" id="progress-label">Fetching data...</div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="section-label">Active Signals</div>
+  <div id="signals-area">
+    <div class="loading-box">Enter your API key above and click ↺ Analyse to begin.</div>
+  </div>
+
+  <div class="section-label" style="margin-top:32px;">ML Learning</div>
+  <div class="ml-strip">
+    <div class="ml-card"><div class="ml-lbl">Trades Logged</div><div class="ml-val" id="ml-total">0</div></div>
+    <div class="ml-card"><div class="ml-lbl">Win Rate</div><div class="ml-val" id="ml-wr">—</div></div>
+    <div class="ml-card"><div class="ml-lbl">Model</div><div class="ml-val" id="ml-model" style="font-size:12px;color:var(--accent2);">Untraining</div></div>
+  </div>
+</main>
+
+<div class="status-bar">
+  <div class="status-dot"></div>
+  <div class="status-txt" id="status-txt">Idle</div>
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────────────────────────────
+const PAIRS = ["EUR/USD","GBP/USD","USD/JPY","USD/CHF"];
+let API_KEY = localStorage.getItem("td_key") || "";
+let tradeLog = JSON.parse(localStorage.getItem("trade_log") || "[]");
+let mlWeights = JSON.parse(localStorage.getItem("ml_weights") || "null");
+
+if (API_KEY) {
+  document.getElementById("api-key").value = API_KEY;
+  document.getElementById("key-status").textContent = "✓ Key loaded";
+}
+
+updateMLStats();
+
+function saveKey() {
+  API_KEY = document.getElementById("api-key").value.trim();
+  localStorage.setItem("td_key", API_KEY);
+  document.getElementById("key-status").textContent = "✓ Saved";
+}
+
+function setStatus(txt) { document.getElementById("status-txt").textContent = txt; }
+function setProgress(pct, label) {
+  document.getElementById("progress-fill").style.width = pct + "%";
+  document.getElementById("progress-label").textContent = label;
+}
+
+// ─── TWELVEDATA FETCH ─────────────────────────────────────────────────────────
+async function fetchOHLC(pair, interval, size=100) {
+  const symbol = pair.replace("/", "%2F");
+  const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${interval}&outputsize=${size}&apikey=${API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!data.values) throw new Error(data.message || "No data");
+  return data.values.map(v => ({
+    time: new Date(v.datetime),
+    open: parseFloat(v.open),
+    high: parseFloat(v.high),
+    low:  parseFloat(v.low),
+    close:parseFloat(v.close)
+  })).reverse(); // oldest first
+}
+
+// ─── SWING POINTS ────────────────────────────────────────────────────────────
+function findSwings(candles, lb=5) {
+  const highs=[], lows=[];
+  for (let i=lb; i<candles.length-lb; i++) {
+    const hi = candles[i].high;
+    const lo = candles[i].low;
+    let isHigh=true, isLow=true;
+    for (let j=i-lb; j<=i+lb; j++) {
+      if (j===i) continue;
+      if (candles[j].high >= hi) isHigh=false;
+      if (candles[j].low <= lo) isLow=false;
+    }
+    if (isHigh) highs.push({index:i, price:hi, time:candles[i].time});
+    if (isLow)  lows.push({index:i, price:lo,  time:candles[i].time});
+  }
+  return {highs, lows};
+}
+
+// ─── BIAS ─────────────────────────────────────────────────────────────────────
+function determineBias(candles) {
+  const {highs, lows} = findSwings(candles, 5);
+  if (highs.length < 2 || lows.length < 2) return {bias:"NEUTRAL", highs, lows};
+  const rh = highs.slice(-3), rl = lows.slice(-3);
+  const hh = rh.every((h,i)=> i===0 || h.price > rh[i-1].price);
+  const hl = rl.every((l,i)=> i===0 || l.price > rl[i-1].price);
+  const lh = rh.every((h,i)=> i===0 || h.price < rh[i-1].price);
+  const ll = rl.every((l,i)=> i===0 || l.price < rl[i-1].price);
+  if (hh && hl) return {bias:"BULLISH", highs, lows};
+  if (lh && ll) return {bias:"BEARISH", highs, lows};
+  return {bias:"NEUTRAL", highs, lows};
+}
+
+// ─── BOS ─────────────────────────────────────────────────────────────────────
+function findBOS(candles, bias, highs, lows) {
+  const cur = candles[candles.length-1].close;
+  if (bias==="BULLISH") {
+    for (let i=highs.length-2; i>=0; i--) {
+      if (cur > highs[i].price) return {price: highs[i].price, direction:"BULLISH"};
+    }
+  } else if (bias==="BEARISH") {
+    for (let i=lows.length-2; i>=0; i--) {
+      if (cur < lows[i].price) return {price: lows[i].price, direction:"BEARISH"};
+    }
+  }
+  return null;
+}
+
+// ─── ORDER BLOCK / POI ───────────────────────────────────────────────────────
+function findPOI(candles, bias, bos) {
+  if (!bos) return null;
+  const cur = candles[candles.length-1].close;
+  const obs = [];
+  for (let i=5; i<candles.length-1; i++) {
+    const c = candles[i], n = candles[i+1];
+    if (bias==="BULLISH" && c.close < c.open && n.close > n.open) {
+      const move = (n.close - c.low) / (c.high - c.low + 1e-10);
+      if (move > 0.5 && c.high < cur)
+        obs.push({top:c.high, bottom:c.low, mid:(c.high+c.low)/2, index:i, type:"DEMAND"});
+    } else if (bias==="BEARISH" && c.close > c.open && n.close < n.open) {
+      const move = (c.high - n.close) / (c.high - c.low + 1e-10);
+      if (move > 0.5 && c.low > cur)
+        obs.push({top:c.high, bottom:c.low, mid:(c.high+c.low)/2, index:i, type:"SUPPLY"});
+    }
+  }
+  return obs.length ? obs[obs.length-1] : null;
+}
+
+// ─── DRAW ON LIQUIDITY ───────────────────────────────────────────────────────
+function findDOL(candles, bias, poi) {
+  if (!poi) return null;
+  const seg = candles.slice(poi.index);
+  if (!seg.length) return null;
+  if (bias==="BULLISH") {
+    let max=seg[0].high, maxT=seg[0].time;
+    seg.forEach(c=>{ if(c.high>max){max=c.high;maxT=c.time;} });
+    return {price:max, time:maxT, type:"HIGH"};
+  } else {
+    let min=seg[0].low, minT=seg[0].time;
+    seg.forEach(c=>{ if(c.low<min){min=c.low;minT=c.time;} });
+    return {price:min, time:minT, type:"LOW"};
+  }
+}
+
+// ─── LIQUIDITY SWEEPS (5M) ───────────────────────────────────────────────────
+function findSweeps(candles5, poi, bias) {
+  if (!poi) return [];
+  const sweeps=[];
+  const margin = (poi.top - poi.bottom)*0.5;
+  for (let i=2; i<candles5.length-1; i++) {
+    const c = candles5[i];
+    const prevLow  = Math.min(...candles5.slice(0,i).map(x=>x.low));
+    const prevHigh = Math.max(...candles5.slice(0,i).map(x=>x.high));
+    if (bias==="BULLISH" && c.low < prevLow && c.close > prevLow) {
+      let type = "before_poi";
+      if (c.low >= poi.bottom-margin && c.low <= poi.top+margin) type="inside_poi";
+      if (c.low < poi.bottom) type="sweep_of_poi";
+      sweeps.push({index:i, price:c.low, high:c.high, time:c.time, type, triggerLevel:prevLow});
+    } else if (bias==="BEARISH" && c.high > prevHigh && c.close < prevHigh) {
+      let type = "before_poi";
+      if (c.high >= poi.bottom-margin && c.high <= poi.top+margin) type="inside_poi";
+      if (c.high > poi.top) type="sweep_of_poi";
+      sweeps.push({index:i, price:c.high, low:c.low, time:c.time, type, triggerLevel:prevHigh});
+    }
+  }
+  return sweeps.slice(-3);
+}
+
+// ─── MSS / CISD ──────────────────────────────────────────────────────────────
+function findConfirmation(candles5, sweep, bias) {
+  if (!sweep) return null;
+  const si = sweep.index;
+
+  // MSS
+  if (bias==="BULLISH") {
+    const swingHigh = Math.max(...candles5.slice(Math.max(0,si-5),si).map(x=>x.high));
+    for (let i=si+1; i<Math.min(si+20,candles5.length); i++) {
+      if (candles5[i].high > swingHigh) {
+        const seg = candles5.slice(Math.max(0,i-3),i);
+        return {type:"MSS", mssLevel:swingHigh, mssIndex:i,
+          entryPOI:{top:Math.max(...seg.map(x=>x.high)), bottom:Math.min(...seg.map(x=>x.low)),
+                    mid:(Math.max(...seg.map(x=>x.high))+Math.min(...seg.map(x=>x.low)))/2}};
+      }
+    }
+  } else {
+    const swingLow = Math.min(...candles5.slice(Math.max(0,si-5),si).map(x=>x.low));
+    for (let i=si+1; i<Math.min(si+20,candles5.length); i++) {
+      if (candles5[i].low < swingLow) {
+        const seg = candles5.slice(Math.max(0,i-3),i);
+        return {type:"MSS", mssLevel:swingLow, mssIndex:i,
+          entryPOI:{top:Math.max(...seg.map(x=>x.high)), bottom:Math.min(...seg.map(x=>x.low)),
+                    mid:(Math.max(...seg.map(x=>x.high))+Math.min(...seg.map(x=>x.low)))/2}};
+      }
+    }
+  }
+
+  // CISD
+  if (bias==="BULLISH") {
+    const sweepHigh = sweep.high || candles5[si].high;
+    let failedToBreak=false, ftsLow=null;
+    for (let i=si+1; i<Math.min(si+30,candles5.length); i++) {
+      if (!failedToBreak && candles5[i].high < sweepHigh) { failedToBreak=true; ftsLow=Math.min(...candles5.slice(si,i+1).map(x=>x.low)); }
+      if (failedToBreak && ftsLow && candles5[i].low < ftsLow) {
+        const ftsHigh = Math.max(...candles5.slice(si,i+1).map(x=>x.high));
+        for (let j=i+1; j<Math.min(i+15,candles5.length); j++) {
+          if (candles5[j].high > ftsHigh) {
+            const seg = candles5.slice(Math.max(0,j-3),j);
+            return {type:"CISD", cisdIndex:j, inducementEntry:ftsLow,
+              entryPOI:{top:Math.max(...seg.map(x=>x.high)), bottom:Math.min(...seg.map(x=>x.low)),
+                        mid:(Math.max(...seg.map(x=>x.high))+Math.min(...seg.map(x=>x.low)))/2}};
+          }
+        }
+        break;
+      }
+    }
+  } else {
+    const sweepLow = sweep.low || candles5[si].low;
+    let failedToBreak=false, ftsHigh=null;
+    for (let i=si+1; i<Math.min(si+30,candles5.length); i++) {
+      if (!failedToBreak && candles5[i].low > sweepLow) { failedToBreak=true; ftsHigh=Math.max(...candles5.slice(si,i+1).map(x=>x.high)); }
+      if (failedToBreak && ftsHigh && candles5[i].high > ftsHigh) {
+        const ftsLow2 = Math.min(...candles5.slice(si,i+1).map(x=>x.low));
+        for (let j=i+1; j<Math.min(i+15,candles5.length); j++) {
+          if (candles5[j].low < ftsLow2) {
+            const seg = candles5.slice(Math.max(0,j-3),j);
+            return {type:"CISD", cisdIndex:j, inducementEntry:ftsHigh,
+              entryPOI:{top:Math.max(...seg.map(x=>x.high)), bottom:Math.min(...seg.map(x=>x.low)),
+                        mid:(Math.max(...seg.map(x=>x.high))+Math.min(...seg.map(x=>x.low)))/2}};
+          }
+        }
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+// ─── BUILD SIGNAL ─────────────────────────────────────────────────────────────
+function buildSignal(pair, bias, bos, poi, dol, sweep, conf, candles5) {
+  if (!bias||!bos||!poi||!dol||!sweep||!conf||!conf.entryPOI) return null;
+  const cur = candles5[candles5.length-1].close;
+  const ep = conf.entryPOI;
+  let entry, sl, tp, direction;
+  if (bias==="BULLISH") {
+    direction="BUY"; entry=ep.bottom;
+    sl=ep.bottom - (ep.top-ep.bottom)*0.5; tp=dol.price;
+  } else {
+    direction="SELL"; entry=ep.top;
+    sl=ep.top + (ep.top-ep.bottom)*0.5; tp=dol.price;
+  }
+  const risk=Math.abs(entry-sl), reward=Math.abs(tp-entry);
+  const rr = risk>0 ? Math.round((reward/risk)*10)/10 : 0;
+  const sig = {
+    pair, direction, bias, entry, sl, tp, rr,
+    currentPrice:cur, dol:dol.price,
+    poiTop:poi.top, poiBottom:poi.bottom,
+    bosLevel:bos.price,
+    sweepType:sweep.type,
+    confirmationType:conf.type,
+    timestamp:new Date().toISOString(),
+    mlConfidence: mlConfidence({rr, confirmationType:conf.type, sweepType:sweep.type, direction})
+  };
+  if (conf.type==="CISD" && conf.inducementEntry) {
+    sig.inducementEntry = conf.inducementEntry;
+    sig.inducementSL = bias==="BULLISH"
+      ? sweep.price - risk*0.3
+      : sweep.price + risk*0.3;
+  }
+  return sig;
+}
+
+// ─── ML (simple logistic regression in JS) ───────────────────────────────────
+function extractFeatures(sig) {
+  return [
+    sig.rr || 0,
+    sig.confirmationType==="MSS" ? 1 : 0,
+    sig.sweepType==="inside_poi" ? 1 : sig.sweepType==="sweep_of_poi" ? 2 : 0,
+    sig.direction==="BUY" ? 1 : 0,
+  ];
+}
+
+function mlConfidence(sig) {
+  if (!mlWeights || tradeLog.length < 10) return 0.60;
+  const feats = extractFeatures(sig);
+  let z = mlWeights.bias;
+  feats.forEach((f,i) => z += mlWeights.w[i]*f);
+  return Math.round((1/(1+Math.exp(-z)))*100)/100;
+}
+
+function trainML() {
+  if (tradeLog.length < 10) return;
+  const lr=0.05, epochs=200;
+  const n=4;
+  let w=new Array(n).fill(0), b=0;
+  for (let e=0; e<epochs; e++) {
+    let dw=new Array(n).fill(0), db=0;
+    tradeLog.forEach(entry => {
+      const f=entry.features, y=entry.outcome;
+      let z=b; f.forEach((fi,i)=>z+=w[i]*fi);
+      const pred=1/(1+Math.exp(-z));
+      const err=pred-y;
+      f.forEach((fi,i)=>dw[i]+=err*fi);
+      db+=err;
+    });
+    w=w.map((wi,i)=>wi - lr*dw[i]/tradeLog.length);
+    b=b - lr*db/tradeLog.length;
+  }
+  mlWeights={w,bias:b};
+  localStorage.setItem("ml_weights", JSON.stringify(mlWeights));
+}
+
+function logOutcome(sig, outcome, btn) {
+  btn.disabled=true;
+  btn.closest(".outcome-row").querySelectorAll("button").forEach(b=>b.disabled=true);
+  tradeLog.push({features:extractFeatures(sig), outcome, pair:sig.pair, ts:new Date().toISOString()});
+  localStorage.setItem("trade_log", JSON.stringify(tradeLog));
+  trainML();
+  updateMLStats();
+  btn.textContent = outcome===1 ? "✓ Logged Win" : "✗ Logged Loss";
+}
+
+function updateMLStats() {
+  document.getElementById("ml-total").textContent = tradeLog.length;
+  if (tradeLog.length>0) {
+    const wins=tradeLog.filter(e=>e.outcome===1).length;
+    document.getElementById("ml-wr").textContent = Math.round(wins/tradeLog.length*100)+"%";
+    document.getElementById("ml-model").textContent = tradeLog.length>=10 ? "Trained ✓" : `Training (${tradeLog.length}/10)`;
+  }
+}
+
+// ─── MAIN ANALYSIS ───────────────────────────────────────────────────────────
+let analysisRunning=false;
+async function runAnalysis() {
+  if (!API_KEY) { alert("Please enter and save your TwelveData API key first."); return; }
+  if (analysisRunning) { alert("A scan is already running — please wait for it to finish."); return; }
+  analysisRunning=true;
+  const btn=document.getElementById("refresh-btn");
+  btn.disabled=true; btn.textContent="Scanning...";
+  document.getElementById("progress-wrap").style.display="block";
+  document.getElementById("signals-area").innerHTML="";
+  document.getElementById("bias-strip").innerHTML="";
+  setStatus("Starting analysis...");
+
+  const results=[];
+  for (let i=0; i<PAIRS.length; i++) {
+    const pair=PAIRS[i];
+    const pct=Math.round((i/PAIRS.length)*100);
+    setProgress(pct, `Fetching ${pair} (1H)...`);
+    setStatus(`Analysing ${pair} (${i+1}/${PAIRS.length})`);
+    try {
+      const c1h = await fetchOHLC(pair,"1h",100);
+      await new Promise(r=>setTimeout(r,8000)); // rate limit gap between every single call
+      setProgress(pct, `Fetching ${pair} (5M)...`);
+      const c5m = await fetchOHLC(pair,"5min",200);
+      await new Promise(r=>setTimeout(r,8000)); // rate limit gap before next pair
+      const {bias,highs,lows} = determineBias(c1h);
+      const bos = findBOS(c1h,bias,highs,lows);
+      const poi = findPOI(c1h,bias,bos);
+      const dol = findDOL(c1h,bias,poi);
+      const sweeps = findSweeps(c5m,poi,bias);
+      if (!sweeps.length) { results.push({pair,bias,bos,poi,dol,message:"Waiting for liquidity sweep near POI."}); continue; }
+      const sweep=sweeps[sweeps.length-1];
+      const conf=findConfirmation(c5m,sweep,bias);
+      if (!conf) { results.push({pair,bias,bos,poi,dol,sweep,message:"Sweep found. Waiting for MSS or CISD."}); continue; }
+      const sig=buildSignal(pair,bias,bos,poi,dol,sweep,conf,c5m);
+      results.push(sig || {pair,bias,message:"Setup incomplete — no valid entry POI."});
+    } catch(e) {
+      results.push({pair,bias:"NEUTRAL",error:e.message||"Failed to fetch data"});
+    }
+  }
+
+  setProgress(100,"Analysis complete");
+  setTimeout(()=>document.getElementById("progress-wrap").style.display="none",1500);
+  renderResults(results);
+  document.getElementById("last-updated").textContent="Updated: "+new Date().toLocaleTimeString();
+  setStatus(`Scan complete — ${PAIRS.length} pairs analysed`);
+  btn.disabled=false; btn.textContent="↺ Analyse";
+  analysisRunning=false;
+}
+
+// ─── RENDER ──────────────────────────────────────────────────────────────────
+function renderResults(results) {
+  const biasStrip=document.getElementById("bias-strip");
+  const area=document.getElementById("signals-area");
+  biasStrip.innerHTML=""; area.innerHTML="";
+
+  const signals=[], waiting=[];
+  results.forEach(r=>{
+    const bc=r.bias==="BULLISH"?"bull":r.bias==="BEARISH"?"bear":"neutral";
+    const sub=r.bos?`BOS @ ${r.bos.price?.toFixed(5)}`:"Scanning...";
+    biasStrip.innerHTML+=`<div class="bias-card">
+      <div class="bc-pair">${r.pair||"—"}</div>
+      <div class="bc-bias ${bc}">${r.bias||"NEUTRAL"}</div>
+      <div class="bc-sub">${sub}</div>
+    </div>`;
+    if (r.direction) signals.push(r); else waiting.push(r);
+  });
+
+  const grid=document.createElement("div"); grid.className="signals-grid";
+  signals.forEach(s=>grid.appendChild(makeSignalCard(s)));
+
+  if (signals.length===0) {
+    area.innerHTML=`<div class="loading-box" style="padding:30px 0">No complete setups found right now — check the watching section below.</div>`;
+  } else {
+    area.appendChild(grid);
+  }
+
+  if (waiting.length) {
+    const wl=document.createElement("div");
+    wl.innerHTML=`<div class="section-label" style="margin-top:28px;">Watching — No Active Signal</div>`;
+    const wg=document.createElement("div"); wg.className="signals-grid";
+    waiting.forEach(w=>wg.appendChild(makeWaitCard(w)));
+    wl.appendChild(wg);
+    area.appendChild(wl);
+  }
+}
+
+function fmt(v,d=5) { return v!=null?parseFloat(v).toFixed(d):"—"; }
+function sweepLabel(t) {
+  return {before_poi:"Sweep Before POI",inside_poi:"Sweep Inside POI",sweep_of_poi:"POI Swept"}[t]||t||"—";
+}
+
+function makeSignalCard(s) {
+  const dir=s.direction==="BUY"?"buy":"sell";
+  const conf=s.mlConfidence||0.6;
+  const confPct=Math.round(conf*100);
+  const d=document.createElement("div");
+  d.className=`sig-card ${dir}`;
+  d.innerHTML=`
+    <div class="sig-head">
+      <div>
+        <div class="sig-pair">${s.pair}</div>
+        <div class="sig-ts">${new Date(s.timestamp).toLocaleTimeString()}</div>
+      </div>
+      <div class="dir-badge ${dir}">${s.direction}</div>
+    </div>
+    <div class="sig-body">
+      <div class="sig-row"><span class="lbl">Current Price</span><span class="val">${fmt(s.currentPrice)}</span></div>
+      <div class="sig-row"><span class="lbl">Entry</span><span class="val entry">${fmt(s.entry)}</span></div>
+      <div class="sig-row"><span class="lbl">Stop Loss</span><span class="val sl">${fmt(s.sl)}</span></div>
+      <div class="sig-row"><span class="lbl">Take Profit</span><span class="val tp">${fmt(s.tp)}</span></div>
+      <div class="sig-row"><span class="lbl">Draw on Liquidity</span><span class="val dol">${fmt(s.dol)}</span></div>
+      <div class="sig-row"><span class="lbl">Risk : Reward</span><span class="val">1 : ${s.rr}</span></div>
+      <div class="sig-row"><span class="lbl">POI Zone</span><span class="val" style="font-size:11px">${fmt(s.poiBottom)} – ${fmt(s.poiTop)}</span></div>
+      <div class="tags">
+        <span class="tag hi">${s.confirmationType}</span>
+        <span class="tag">${sweepLabel(s.sweepType)}</span>
+        <span class="tag">${s.bias}</span>
+      </div>
+      ${s.inducementEntry ? `<div class="inducement-box">
+        ⚡ Inducement Entry: ${fmt(s.inducementEntry)}<br>
+        SL: ${fmt(s.inducementSL)} &nbsp;|&nbsp; TP: ${fmt(s.tp)}
+      </div>` : ""}
+      <div class="conf-wrap">
+        <div class="conf-labels"><span>ML Confidence</span><span>${confPct}%</span></div>
+        <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%"></div></div>
+      </div>
+      <div class="outcome-row">
+        <button class="out-btn win" onclick="logOutcome(${JSON.stringify(s).replace(/"/g,'&quot;')}, 1, this)">✓ Win</button>
+        <button class="out-btn loss" onclick="logOutcome(${JSON.stringify(s).replace(/"/g,'&quot;')}, 0, this)">✗ Loss</button>
+      </div>
+    </div>`;
+  return d;
+}
+
+function makeWaitCard(w) {
+  const biasColor=w.bias==="BULLISH"?"var(--bull)":w.bias==="BEARISH"?"var(--bear)":"var(--neutral)";
+  const d=document.createElement("div"); d.className="wait-card";
+  d.innerHTML=`
+    <div class="wc-pair" style="color:${biasColor}">${w.pair} — ${w.bias||"NEUTRAL"}</div>
+    <div class="wc-msg">${w.message||w.error||"Analysing..."}</div>
+    ${w.poi?`<div class="wc-poi">POI: ${fmt(w.poi.bottom)} – ${fmt(w.poi.top)}</div>`:""}`;
+  return d;
+}
+
+// Auto-refresh every 5 minutes
+setInterval(()=>{ if(API_KEY && !analysisRunning) runAnalysis(); }, 5*60*1000);
+</script>
+</body>
+</html>
