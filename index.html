@@ -622,10 +622,15 @@ async function runAnalysis() {
   setProgress(100,"Analysis complete");
   setTimeout(()=>document.getElementById("progress-wrap").style.display="none",1500);
 
-  // Merge any new active signals into the persistent pending store.
-  // Existing unlogged signals stay until the user logs Win/Loss/Not Triggered.
+  // Merge new active signals into the persistent pending store.
+  // Only ONE signal per pair is kept — the latest scan always wins,
+  // replacing any older pending signal for the same pair.
   results.forEach(r => {
     if (r.direction && r.id) {
+      // Remove any existing pending signal for this pair first
+      Object.keys(pendingSignals).forEach(key => {
+        if (pendingSignals[key].pair === r.pair) delete pendingSignals[key];
+      });
       pendingSignals[r.id] = r;
     }
   });
