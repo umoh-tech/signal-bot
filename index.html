@@ -219,6 +219,9 @@ const PAIRS = ["EUR/USD","GBP/USD","USD/JPY","USD/CHF"];
 let API_KEY = localStorage.getItem("td_key") || "";
 let tradeLog = JSON.parse(localStorage.getItem("trade_log") || "[]");
 let mlWeights = JSON.parse(localStorage.getItem("ml_weights") || "null");
+// Pending signals are active, unlogged BUY/SELL setups, keyed by a unique id.
+// They persist across re-scans until the user clicks Win/Loss/Not Triggered.
+let pendingSignals = JSON.parse(localStorage.getItem("pending_signals") || "{}");
 
 if (API_KEY) {
   document.getElementById("api-key").value = API_KEY;
@@ -331,18 +334,34 @@ function findPOI(candles, bias, bos) {
 }
 
 // ─── DRAW ON LIQUIDITY ───────────────────────────────────────────────────────
-function findDOL(candles, bias, poi) {
+function findDOL(candles, bias, poi, highs, lows) {
   if (!poi) return null;
-  const seg = candles.slice(poi.index);
-  if (!seg.length) return null;
+  // The draw on liquidity is the highest/lowest point price reached
+  // on the leg BEFORE price pulled back into the POI - i.e. before poi.index,
+  // not after it.
   if (bias==="BULLISH") {
-    let max=seg[0].high, maxT=seg[0].time;
-    seg.forEach(c=>{ if(c.high>max){max=c.high;maxT=c.time;} });
-    return {price:max, time:maxT, type:"HIGH"};
+    const priorHighs = highs.filter(h => h.index <= poi.index);
+    if (!priorHighs.length) {
+      // fallback: scan raw candles before the POI for the highest high
+      const seg = candles.slice(0, poi.index+1);
+      if (!seg.length) return null;
+      let max=seg[0].high, maxT=seg[0].time;
+      seg.forEach(c=>{ if(c.high>max){max=c.high;maxT=c.time;} });
+      return {price:max, time:maxT, type:"HIGH"};
+    }
+    const top = priorHighs.reduce((a,b)=> b.price > a.price ? b : a);
+    return {price: top.price, time: top.time, type:"HIGH"};
   } else {
-    let min=seg[0].low, minT=seg[0].time;
-    seg.forEach(c=>{ if(c.low<min){min=c.low;minT=c.time;} });
-    return {price:min, time:minT, type:"LOW"};
+    const priorLows = lows.filter(l => l.index <= poi.index);
+    if (!priorLows.length) {
+      const seg = candles.slice(0, poi.index+1);
+      if (!seg.length) return null;
+      let min=seg[0].low, minT=seg[0].time;
+      seg.forEach(c=>{ if(c.low<min){min=c.low;minT=c.time;} });
+      return {price:min, time:minT, type:"LOW"};
+    }
+    const bottom = priorLows.reduce((a,b)=> b.price < a.price ? b : a);
+    return {price: bottom.price, time: bottom.time, type:"LOW"};
   }
 }
 
@@ -454,7 +473,9 @@ function buildSignal(pair, bias, bos, poi, dol, sweep, conf, candles5) {
   }
   const risk=Math.abs(entry-sl), reward=Math.abs(tp-entry);
   const rr = risk>0 ? Math.round((reward/risk)*10)/10 : 0;
+  const sigId = `${pair}_${direction}_${entry.toFixed(5)}_${sl.toFixed(5)}_${tp.toFixed(5)}`;
   const sig = {
+    id: sigId,
     pair, direction, bias, entry, sl, tp, rr,
     currentPrice:cur, dol:dol.price,
     poiTop:poi.top, poiBottom:poi.bottom,
@@ -523,6 +544,7 @@ function logOutcome(sig, outcome, btn) {
     localStorage.setItem("trade_log", JSON.stringify(tradeLog));
     updateMLStats();
     btn.textContent = "⊘ Logged: Not Triggered";
+    removePendingSignal(sig.id);
     return;
   }
   tradeLog.push({features:extractFeatures(sig), outcome, pair:sig.pair, ts:new Date().toISOString()});
@@ -530,6 +552,18 @@ function logOutcome(sig, outcome, btn) {
   trainML();
   updateMLStats();
   btn.textContent = outcome===1 ? "✓ Logged Win" : "✗ Logged Loss";
+  removePendingSignal(sig.id);
+}
+
+function removePendingSignal(id) {
+  if (!id) return;
+  delete pendingSignals[id];
+  localStorage.setItem("pending_signals", JSON.stringify(pendingSignals));
+  // Remove the card from view after a short delay so the user sees the confirmation text
+  setTimeout(()=>{
+    const lr = JSON.parse(localStorage.getItem("last_results")||"[]");
+    renderResults(lr);
+  }, 1200);
 }
 
 function updateMLStats() {
@@ -572,7 +606,7 @@ async function runAnalysis() {
       const {bias,highs,lows} = determineBias(c1h);
       const bos = findBOS(c1h,bias,highs,lows);
       const poi = findPOI(c1h,bias,bos);
-      const dol = findDOL(c1h,bias,poi);
+      const dol = findDOL(c1h,bias,poi,highs,lows);
       const sweeps = findSweeps(c5m,poi,bias);
       if (!sweeps.length) { results.push({pair,bias,bos,poi,dol,message:"Waiting for liquidity sweep near POI."}); continue; }
       const sweep=sweeps[sweeps.length-1];
@@ -587,6 +621,16 @@ async function runAnalysis() {
 
   setProgress(100,"Analysis complete");
   setTimeout(()=>document.getElementById("progress-wrap").style.display="none",1500);
+
+  // Merge any new active signals into the persistent pending store.
+  // Existing unlogged signals stay until the user logs Win/Loss/Not Triggered.
+  results.forEach(r => {
+    if (r.direction && r.id) {
+      pendingSignals[r.id] = r;
+    }
+  });
+  localStorage.setItem("pending_signals", JSON.stringify(pendingSignals));
+
   renderResults(results);
   const nowStr = new Date().toLocaleTimeString();
   document.getElementById("last-updated").textContent="Updated: "+nowStr;
@@ -603,7 +647,7 @@ function renderResults(results) {
   const area=document.getElementById("signals-area");
   biasStrip.innerHTML=""; area.innerHTML="";
 
-  const signals=[], waiting=[];
+  const waiting=[];
   results.forEach(r=>{
     const bc=r.bias==="BULLISH"?"bull":r.bias==="BEARISH"?"bear":"neutral";
     const sub=r.bos?`BOS @ ${r.bos.price?.toFixed(5)}`:"Scanning...";
@@ -612,8 +656,12 @@ function renderResults(results) {
       <div class="bc-bias ${bc}">${r.bias||"NEUTRAL"}</div>
       <div class="bc-sub">${sub}</div>
     </div>`;
-    if (r.direction) signals.push(r); else waiting.push(r);
+    if (!r.direction) waiting.push(r);
   });
+
+  // Always render from the persistent pending signals store, so cards
+  // survive re-scans/reloads until explicitly logged.
+  const signals = Object.values(pendingSignals).sort((a,b)=> new Date(b.timestamp)-new Date(a.timestamp));
 
   const grid=document.createElement("div"); grid.className="signals-grid";
   signals.forEach(s=>grid.appendChild(makeSignalCard(s)));
