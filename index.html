@@ -314,56 +314,58 @@ function findBOS(candles, bias, highs, lows) {
 }
 
 // ─── ORDER BLOCK / POI ───────────────────────────────────────────────────────
-function findPOI(candles, bias, bos) {
-  if (!bos) return null;
+// ─── FIND ALL VALID POIs THAT LED TO THE BOS ─────────────────────────────────
+// Returns ALL order blocks between the start of the move and the BOS candle.
+// The bot then checks each one for a sweep + confirmation on 5M.
+function findAllPOIs(candles, bias, bos, highs, lows) {
+  if (!bos) return [];
+  // Find BOS candle index
+  let bosIndex = candles.length - 1;
+  for (let i=0; i<candles.length; i++) {
+    if (bias==="BULLISH" && candles[i].close > bos.price) { bosIndex=i; break; }
+    if (bias==="BEARISH" && candles[i].close < bos.price) { bosIndex=i; break; }
+  }
   const cur = candles[candles.length-1].close;
   const obs = [];
-  for (let i=5; i<candles.length-1; i++) {
+  // Scan candles before and up to the BOS for valid order blocks
+  for (let i=5; i<Math.min(bosIndex+1, candles.length-1); i++) {
     const c = candles[i], n = candles[i+1];
     if (bias==="BULLISH" && c.close < c.open && n.close > n.open) {
       const move = (n.close - c.low) / (c.high - c.low + 1e-10);
-      if (move > 0.5 && c.high < cur)
-        obs.push({top:c.high, bottom:c.low, mid:(c.high+c.low)/2, index:i, type:"DEMAND"});
+      if (move > 0.5)
+        obs.push({top:c.high, bottom:c.low, mid:(c.high+c.low)/2, index:i, bosIndex, type:"DEMAND"});
     } else if (bias==="BEARISH" && c.close > c.open && n.close < n.open) {
       const move = (c.high - n.close) / (c.high - c.low + 1e-10);
-      if (move > 0.5 && c.low > cur)
-        obs.push({top:c.high, bottom:c.low, mid:(c.high+c.low)/2, index:i, type:"SUPPLY"});
+      if (move > 0.5)
+        obs.push({top:c.high, bottom:c.low, mid:(c.high+c.low)/2, index:i, bosIndex, type:"SUPPLY"});
     }
   }
-  if (!obs.length) return null;
-  // Pick the OB closest to current price — most relevant for entry
-  if (bias==="BULLISH") {
-    return obs.reduce((best,ob)=>
-      Math.abs(cur - ob.top) < Math.abs(cur - best.top) ? ob : best);
-  } else {
-    return obs.reduce((best,ob)=>
-      Math.abs(cur - ob.bottom) < Math.abs(cur - best.bottom) ? ob : best);
-  }
+  return obs;
 }
 
 // ─── DRAW ON LIQUIDITY ───────────────────────────────────────────────────────
-function findDOL(candles, bias, poi, highs, lows) {
-  if (!poi) return null;
-  // DOL = the highest high (bullish) or lowest low (bearish) that occurred
-  // BEFORE price pulled back into the POI. We scan all candles up to the POI
-  // and also check detected swing points, then take the best one.
+// The extreme (highest high / lowest low) formed AFTER the BOS and BEFORE
+// price pulled back into the POI. This sits between bosIndex and poi.index.
+function findDOL(candles, bias, poi, highs, lows, bos) {
+  if (!poi || !bos) return null;
+  const bosIndex = poi.bosIndex || 0;
+  const poiIndex = poi.index;
+  // Scan the candles strictly between the BOS and the POI
+  const segment = candles.slice(bosIndex, poiIndex+1);
+  if (!segment.length) return null;
   if (bias==="BULLISH") {
-    // Raw scan of all candles before the POI
-    const seg = candles.slice(0, poi.index+1);
-    if (!seg.length) return null;
-    let max=seg[0].high, maxT=seg[0].time;
-    seg.forEach(c=>{ if(c.high>max){max=c.high;maxT=c.time;} });
-    // Also check swing highs before the POI
-    const priorHighs = highs.filter(h => h.index <= poi.index);
-    priorHighs.forEach(h=>{ if(h.price>max){max=h.price;maxT=h.time;} });
+    // Highest high between BOS and POI = the peak price was drawn to before pulling back
+    let max=segment[0].high, maxT=segment[0].time;
+    segment.forEach(c=>{ if(c.high>max){max=c.high;maxT=c.time;} });
+    highs.filter(h=>h.index>=bosIndex && h.index<=poiIndex)
+         .forEach(h=>{ if(h.price>max){max=h.price;maxT=h.time;} });
     return {price:max, time:maxT, type:"HIGH"};
   } else {
-    const seg = candles.slice(0, poi.index+1);
-    if (!seg.length) return null;
-    let min=seg[0].low, minT=seg[0].time;
-    seg.forEach(c=>{ if(c.low<min){min=c.low;minT=c.time;} });
-    const priorLows = lows.filter(l => l.index <= poi.index);
-    priorLows.forEach(l=>{ if(l.price<min){min=l.price;minT=l.time;} });
+    // Lowest low between BOS and POI = the trough price was drawn to before pulling back
+    let min=segment[0].low, minT=segment[0].time;
+    segment.forEach(c=>{ if(c.low<min){min=c.low;minT=c.time;} });
+    lows.filter(l=>l.index>=bosIndex && l.index<=poiIndex)
+        .forEach(l=>{ if(l.price<min){min=l.price;minT=l.time;} });
     return {price:min, time:minT, type:"LOW"};
   }
 }
@@ -601,21 +603,45 @@ async function runAnalysis() {
     setProgress(pct, `Fetching ${pair} (1H)...`);
     setStatus(`Analysing ${pair} (${i+1}/${PAIRS.length})`);
     try {
-      const c1h = await fetchOHLC(pair,"1h",100);
+      const c1h = await fetchOHLC(pair,"1h",120);
       await new Promise(r=>setTimeout(r,16000)); // rate limit gap between every single call
       setProgress(pct, `Fetching ${pair} (5M)...`);
       const c5m = await fetchOHLC(pair,"5min",200);
       await new Promise(r=>setTimeout(r,16000)); // rate limit gap before next pair
       const {bias,highs,lows} = determineBias(c1h);
       const bos = findBOS(c1h,bias,highs,lows);
-      const poi = findPOI(c1h,bias,bos);
-      const dol = findDOL(c1h,bias,poi,highs,lows);
-      const sweeps = findSweeps(c5m,poi,bias);
-      if (!sweeps.length) { results.push({pair,bias,bos,poi,dol,message:"Waiting for liquidity sweep near POI."}); continue; }
-      const sweep=sweeps[sweeps.length-1];
-      const conf=findConfirmation(c5m,sweep,bias);
-      if (!conf) { results.push({pair,bias,bos,poi,dol,sweep,message:"Sweep found. Waiting for MSS or CISD."}); continue; }
-      const sig=buildSignal(pair,bias,bos,poi,dol,sweep,conf,c5m);
+      if (!bos) { results.push({pair,bias,message:"No BOS found yet."}); continue; }
+
+      const allPOIs = findAllPOIs(c1h,bias,bos,highs,lows);
+      if (!allPOIs.length) { results.push({pair,bias,bos,message:"No valid POIs found leading to BOS."}); continue; }
+
+      // Check each POI for a sweep + confirmation on 5M.
+      // Only the POI where price actually gives us a setup is valid.
+      let confirmedPOI=null, confirmedSweep=null, confirmedConf=null;
+      for (const poi of allPOIs) {
+        const sweeps = findSweeps(c5m, poi, bias);
+        if (!sweeps.length) continue;
+        const sweep = sweeps[sweeps.length-1];
+        const conf = findConfirmation(c5m, sweep, bias);
+        if (conf) {
+          confirmedPOI = poi;
+          confirmedSweep = sweep;
+          confirmedConf = conf;
+          break; // take the first POI that gives us a valid confirmation
+        }
+      }
+
+      if (!confirmedPOI) {
+        // Report which POIs are being watched
+        results.push({pair, bias, bos,
+          poi: allPOIs[allPOIs.length-1], // show most recent for display
+          message:`Watching ${allPOIs.length} POI${allPOIs.length>1?"s":""} — waiting for sweep + confirmation.`
+        });
+        continue;
+      }
+
+      const dol = findDOL(c1h,bias,confirmedPOI,highs,lows,bos);
+      const sig = buildSignal(pair,bias,bos,confirmedPOI,dol,confirmedSweep,confirmedConf,c5m);
       results.push(sig || {pair,bias,message:"Setup incomplete — no valid entry POI."});
     } catch(e) {
       results.push({pair,bias:"NEUTRAL",error:e.message||"Failed to fetch data"});
