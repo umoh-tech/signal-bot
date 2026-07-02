@@ -424,7 +424,7 @@ function findConfirmation(candles5, sweep, bias) {
 
   // CISD
   if (bias==="BULLISH") {
-    const sweepHigh = sweep.high || candles5[si].high;
+  const sweepHigh = sweep.high || candles5[si].high;
     let failedToBreak=false, ftsLow=null;
     for (let i=si+1; i<Math.min(si+30,candles5.length); i++) {
       if (!failedToBreak && candles5[i].high < sweepHigh) { failedToBreak=true; ftsLow=Math.min(...candles5.slice(si,i+1).map(x=>x.low)); }
@@ -775,8 +775,37 @@ function makeWaitCard(w) {
   return d;
 }
 
-// Auto-refresh every 5 minutes
-setInterval(()=>{ if(API_KEY && !analysisRunning) runAnalysis(); }, 5*60*1000);
+function getSessionStatus() {
+  const now = new Date();
+  const watHour = (now.getUTCHours() + 1) % 24;
+  const londonOpen  = watHour >= 8  && watHour < 17;
+  const newYorkOpen = watHour >= 14 && watHour < 23;
+  if (londonOpen && newYorkOpen) return {active:true, label:"🟢 London + New York Session"};
+  if (londonOpen)  return {active:true,  label:"🟢 London Session"};
+  if (newYorkOpen) return {active:true,  label:"🟢 New York Session"};
+  return {active:false, label:"🔴 Outside Sessions (London: 8AM–5PM WAT | NY: 2PM–11PM WAT)"};
+}
+
+// Update session status every minute
+function updateSessionStatus() {
+  const s = getSessionStatus();
+  setStatus(s.label);
+}
+updateSessionStatus();
+setInterval(updateSessionStatus, 60*1000);
+setInterval(()=>{
+  if (!API_KEY || analysisRunning) return;
+  const now = new Date();
+  // WAT = UTC+1
+  const watHour = (now.getUTCHours() + 1) % 24;
+  const londonOpen  = watHour >= 8  && watHour < 17;  // 8AM - 5PM WAT
+  const newYorkOpen = watHour >= 14 && watHour < 23;  // 2PM - 11PM WAT
+  if (londonOpen || newYorkOpen) {
+    runAnalysis();
+  } else {
+    setStatus("Outside trading sessions — next scan at London open (8AM WAT)");
+  }
+}, 15 * 60 * 1000);
 </script>
 </body>
 </html>
