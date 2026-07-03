@@ -424,7 +424,7 @@ function findConfirmation(candles5, sweep, bias) {
 
   // CISD
   if (bias==="BULLISH") {
-  const sweepHigh = sweep.high || candles5[si].high;
+    const sweepHigh = sweep.high || candles5[si].high;
     let failedToBreak=false, ftsLow=null;
     for (let i=si+1; i<Math.min(si+30,candles5.length); i++) {
       if (!failedToBreak && candles5[i].high < sweepHigh) { failedToBreak=true; ftsLow=Math.min(...candles5.slice(si,i+1).map(x=>x.low)); }
