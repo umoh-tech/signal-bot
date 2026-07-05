@@ -180,6 +180,7 @@ main { padding: 24px 28px; }
   <input type="password" id="api-key" placeholder="Paste your TwelveData API key here..."/>
   <button class="btn-save" onclick="saveKey()">Save</button>
   <button class="btn-refresh" id="refresh-btn" onclick="runAnalysis()">↺ Analyse</button>
+  <button class="btn-refresh" style="border-color:var(--bear);color:var(--bear);" onclick="clearAllSignals()">✕ Clear All Cards</button>
   <span id="key-status"></span>
 </div>
 
@@ -222,6 +223,7 @@ let mlWeights = JSON.parse(localStorage.getItem("ml_weights") || "null");
 // Pending signals are active, unlogged BUY/SELL setups, keyed by a unique id.
 // They persist across re-scans until the user clicks Win/Loss/Not Triggered.
 let pendingSignals = JSON.parse(localStorage.getItem("pending_signals") || "{}");
+let dismissedSignals = JSON.parse(localStorage.getItem("dismissed_signals") || "{}");
 
 if (API_KEY) {
   document.getElementById("api-key").value = API_KEY;
@@ -236,6 +238,16 @@ if (lastResultsRestored) {
   renderResults(lastResultsRestored);
   const lastTime = localStorage.getItem("last_updated_time");
   if (lastTime) document.getElementById("last-updated").textContent = "Last updated: " + lastTime;
+}
+
+function clearAllSignals() {
+  if (!confirm("This will remove all active signal cards. Your trade log and ML data are kept. Continue?")) return;
+  pendingSignals = {};
+  dismissedSignals = {};
+  localStorage.setItem("pending_signals", "{}");
+  localStorage.setItem("dismissed_signals", "{}");
+  const lr = JSON.parse(localStorage.getItem("last_results")||"[]");
+  renderResults(lr);
 }
 
 function saveKey() {
@@ -478,7 +490,7 @@ function buildSignal(pair, bias, bos, poi, dol, sweep, conf, candles5) {
   }
   const risk=Math.abs(entry-sl), reward=Math.abs(tp-entry);
   const rr = risk>0 ? Math.round((reward/risk)*10)/10 : 0;
-  const sigId = `${pair}_${direction}_${entry.toFixed(5)}_${sl.toFixed(5)}_${tp.toFixed(5)}`;
+  const sigId = `${pair}_${direction}_${entry.toFixed(5)}_${sl.toFixed(5)}`;
   const sig = {
     id: sigId,
     pair, direction, bias, entry, sl, tp, rr,
@@ -562,9 +574,11 @@ function logOutcome(sig, outcome, btn) {
 
 function removePendingSignal(id) {
   if (!id) return;
+  // Add to dismissed so it never comes back even if the scan finds it again
+  dismissedSignals[id] = true;
+  localStorage.setItem("dismissed_signals", JSON.stringify(dismissedSignals));
   delete pendingSignals[id];
   localStorage.setItem("pending_signals", JSON.stringify(pendingSignals));
-  // Remove the card from view after a short delay so the user sees the confirmation text
   setTimeout(()=>{
     const lr = JSON.parse(localStorage.getItem("last_results")||"[]");
     renderResults(lr);
@@ -656,7 +670,9 @@ async function runAnalysis() {
   // replacing any older pending signal for the same pair.
   results.forEach(r => {
     if (r.direction && r.id) {
-      // Remove any existing pending signal for this pair first
+      // Never bring back a dismissed signal
+      if (dismissedSignals[r.id]) return;
+      // Only one signal per pair — latest wins
       Object.keys(pendingSignals).forEach(key => {
         if (pendingSignals[key].pair === r.pair) delete pendingSignals[key];
       });
@@ -809,3 +825,4 @@ setInterval(()=>{
 </script>
 </body>
 </html>
+
